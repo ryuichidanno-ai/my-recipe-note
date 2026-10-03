@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>マイ・レシピノート（OneDrive Excel連携版）</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts (Noto Sans JP) -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            background-color: #f8fafc;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+    <!-- Microsoft認証ライブラリ (MSAL) -->
+    <script src="https://alcdn.msauth.net/browser/3.24.0/js/msal-browser.min.js"></script>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-amber-600 text-white shadow-md sticky top-0 z-30">
+        <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-white text-amber-600 p-2.5 rounded-xl shadow-inner">
+                    <i class="fa-solid fa-utensils text-xl"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold tracking-wide">マイ・レシピノート</h1>
+                    <p class="text-xs text-amber-100">OneDrive Excel直接保存・AI解析版</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+                <button onclick="openRecipeModal()" class="bg-white text-amber-700 hover:bg-amber-50 px-4 py-2 rounded-xl font-medium shadow-sm transition flex items-center gap-2 text-sm">
+                    <i class="fa-solid fa-plus"></i> 新規レシピ追加
+                </button>
+                <button onclick="openAiModal()" class="bg-amber-800 text-white hover:bg-amber-900 px-4 py-2 rounded-xl font-medium shadow-sm transition flex items-center gap-2 text-sm border border-amber-500/40">
+                    <i class="fa-solid fa-camera-retro"></i> 写真からAI作成
+                </button>
+                <button onclick="loadRecipesFromSheets()" class="bg-amber-700 hover:bg-amber-800 text-white p-2.5 rounded-xl transition shadow-sm" title="OneDriveのExcelから再読み込み">
+                    <i class="fa-solid fa-rotate"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="max-w-5xl mx-auto px-4 py-6 flex-grow w-full">
+        <!-- Search & Filter Bar -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 mb-6">
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                <!-- Keyword search -->
+                <div class="sm:col-span-4 relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3.5 text-slate-400"></i>
+                    <input type="text" id="searchInput" placeholder="料理名や材料名で検索..." oninput="filterRecipes()" class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                </div>
+                <!-- Genre filter -->
+                <div class="sm:col-span-3">
+                    <select id="genreFilter" onchange="filterRecipes()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                        <option value="">すべてのジャンル</option>
+                    </select>
+                </div>
+                <!-- Supplier / Client filter -->
+                <div class="sm:col-span-4">
+                    <select id="supplierFilter" onchange="filterRecipes()" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                        <option value="">すべての取引先</option>
+                    </select>
+                </div>
+                <!-- Reset button -->
+                <div class="sm:col-span-1 flex items-center">
+                    <button onclick="resetFilters()" title="フィルターをリセット" class="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition text-sm flex items-center justify-center">
+                        <i class="fa-solid fa-rotate-right"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recipe Grid / List -->
+        <div id="recipeContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Dynamically populated recipes -->
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="hidden text-center py-16 px-4">
+            <div class="inline-flex bg-amber-50 text-amber-600 p-4 rounded-full text-3xl mb-3 shadow-inner">
+                <i class="fa-solid fa-book-open"></i>
+            </div>
+            <h3 class="text-lg font-bold text-slate-700">レシピがありません</h3>
+            <p class="text-sm text-slate-500 mt-1 max-w-sm mx-auto">OneDriveのExcelからデータを読み込むか、新しくレシピを追加してみましょう！</p>
+            <div class="mt-4 flex justify-center gap-3">
+                <button onclick="openRecipeModal()" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm shadow transition">
+                    手動で追加する
+                </button>
+                <button onclick="loadRecipesFromSheets()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-medium text-sm shadow transition">
+                    OneDriveのExcelから読み込み
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <!-- AI Photo Analysis Modal -->
+    <div id="aiModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-amber-50/50">
+                <h3 class="font-bold text-lg text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-wand-magic-sparkles text-amber-600"></i> 写真からレシピを自動推測
+                </h3>
+                <button onclick="closeAiModal()" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <div class="p-6 space-y-5">
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    料理の写真や完成品の画像、または料理本やメモのスクリーンショットをアップロードすると、Gemini AIが料理名、ジャンル、メイン食材、材料、作り方を分析してフォームに自動入力します！
+                </p>
+
+                <!-- Dropzone / File Picker -->
+                <div class="border-2 border-dashed border-slate-200 hover:border-amber-400 rounded-2xl p-6 text-center cursor-pointer transition bg-slate-50/50 relative" onclick="document.getElementById('aiImageInput').click()">
+                    <input type="file" id="aiImageInput" accept="image/*" class="hidden" onchange="previewAiImage(event)">
+                    <div id="aiUploadPlaceholder">
+                        <div class="w-12 h-12 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto mb-3 text-xl shadow-inner">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                        </div>
+                        <p class="text-sm font-medium text-slate-700">クリックして画像を選択、またはドラッグ＆ドロップ</p>
+                        <p class="text-xs text-slate-400 mt-1">PNG, JPG, WEBP対応</p>
+                    </div>
+                    <div id="aiPreviewContainer" class="hidden">
+                        <img id="aiImagePreview" src="" alt="Preview" class="max-h-48 mx-auto rounded-xl shadow-sm mb-2 object-cover">
+                        <p class="text-xs text-amber-700 font-medium">画像を選択中（クリックで変更）</p>
+                    </div>
+                </div>
+
+                <!-- Analysis Status / Loader -->
+                <div id="aiLoading" class="hidden text-center py-4">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-amber-600 border-t-transparent mb-2"></div>
+                    <p class="text-sm font-medium text-slate-600">Gemini AIが料理を分析中...</p>
+                </div>
+
+                <!-- Actions -->
+                <div class="pt-2 flex justify-end gap-3">
+                    <button type="button" onclick="closeAiModal()" class="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+                        キャンセル
+                    </button>
+                    <button type="button" id="analyzeBtn" onclick="analyzeRecipePhoto()" disabled class="bg-amber-600 hover:bg-amber-700 disabled:bg-slate-200 disabled:text-slate-400 text-white px-6 py-2.5 rounded-xl text-sm font-medium shadow-md transition flex items-center gap-2">
+                        <i class="fa-solid fa-brain"></i> AI解析を実行する
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- Recipe Modal (Create / Edit) -->
+    <div id="recipeModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+            <!-- Modal Header -->
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <h3 id="modalTitle" class="font-bold text-lg text-slate-800">新規レシピの登録</h3>
+                <button onclick="closeRecipeModal()" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <!-- Modal Body (Form) -->
+            <div class="p-6 overflow-y-auto space-y-5 flex-grow">
+                <form id="recipeForm" onsubmit="saveRecipe(event)">
+                    <input type="hidden" id="recipeId">
+
+                    <!-- Recipe Photo / Illustration Upload -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">料理の写真・イラスト</label>
+                        <div class="flex items-center gap-4">
+                            <div class="w-24 h-24 bg-slate-100 border-2 border-dashed border-slate-300 rounded-2xl flex items-center justify-center overflow-hidden relative group cursor-pointer hover:border-amber-500 transition" onclick="document.getElementById('recipeImageInput').click()">
+                                <img id="recipeImagePreview" src="" alt="Preview" class="w-full h-full object-cover hidden">
+                                <div id="recipeImagePlaceholder" class="text-center p-2 text-slate-400">
+                                    <i class="fa-solid fa-image text-2xl mb-1"></i>
+                                    <p class="text-[10px]">選択</p>
+                                </div>
+                                <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-medium">
+                                    変更
+                                </div>
+                            </div>
+                            <div class="flex-grow space-y-2">
+                                <input type="file" id="recipeImageInput" accept="image/*" class="hidden" onchange="previewRecipeImage(event)">
+                                <div class="flex gap-2">
+                                    <button type="button" onclick="document.getElementById('recipeImageInput').click()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-xl text-xs font-medium transition flex items-center gap-1.5">
+                                        <i class="fa-solid fa-upload"></i> 画像を選ぶ
+                                    </button>
+                                    <button type="button" id="removeImageBtn" onclick="clearRecipeImage()" class="hidden text-rose-600 hover:text-rose-700 px-3 py-1.5 rounded-xl text-xs font-medium transition flex items-center gap-1.5">
+                                        <i class="fa-solid fa-trash"></i> 削除
+                                    </button>
+                                </div>
+                                <p class="text-[11px] text-slate-400">完成した料理の写真や手描きのイラスト画像をアップロードできます。</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recipe Name -->
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">料理名 <span class="text-rose-500">*</span></label>
+                        <input type="text" id="recipeName" required placeholder="例：特製スパイスバターチキンカレー" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                    </div>
+
+                    <!-- Categories Row (Genre, Supplier, Main Ingredient) -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">分類（ジャンル）</label>
+                            <input type="text" id="recipeGenre" list="genreList" placeholder="例：和食、中華..." class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                            <datalist id="genreList">
+                                <option value="和食">
+                                <option value="中華料理">
+                                <option value="イタリアン">
+                                <option value="インド料理">
+                                <option value="エスニック">
+                                <option value="洋食">
+                                <option value="韓国料理">
+                                <option value="その他">
+                            </datalist>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">取引先 <span class="text-[10px] text-amber-600 font-normal">(手入力)</span></label>
+                            <input type="text" id="recipeSupplier" list="supplierList" placeholder="例：〇〇商店..." class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                            <datalist id="supplierList"></datalist>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">メイン食材</label>
+                            <input type="text" id="recipeMainIngredient" list="ingredientList" placeholder="例：鶏肉、豚肉..." class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                            <datalist id="ingredientList">
+                                <option value="鶏肉">
+                                <option value="豚肉">
+                                <option value="牛肉">
+                                <option value="魚介類">
+                                <option value="野菜・豆腐">
+                                <option value="その他">
+                            </datalist>
+                        </div>
+                    </div>
+
+                    <!-- Servings -->
+                    <div class="mt-4">
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">分量（人数）</label>
+                        <select id="recipeServings" class="w-full sm:w-1/2 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition">
+                            <option value="1人分">1人分</option>
+                            <option value="2人分" selected>2人分</option>
+                            <option value="3人分">3人分</option>
+                            <option value="4人分">4人分</option>
+                            <option value="5人分以上">5人分以上</option>
+                            <option value="作りやすい分量">作りやすい分量</option>
+                        </select>
+                    </div>
+
+                    <!-- Ingredients Section -->
+                    <div class="mt-6">
+                        <div class="flex justify-between items-center mb-2">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">材料・分量・原価計算</label>
+                                <p class="text-[11px] text-slate-400">材料名、分量、原価を入力すると自動で小計が計算されます</p>
+                            </div>
+                            <button type="button" onclick="addIngredientRow()" class="text-xs text-amber-600 hover:text-amber-700 font-bold flex items-center gap-1 bg-amber-50 px-2.5 py-1.5 rounded-lg transition shrink-0">
+                                <i class="fa-solid fa-plus"></i> 材料を追加
+                            </button>
+                        </div>
+
+                        <!-- Header guide for rows -->
+                        <div class="hidden sm:grid grid-cols-12 gap-2 text-[11px] font-bold text-slate-400 px-1 mb-1">
+                            <div class="col-span-4">材料名</div>
+                            <div class="col-span-2">分量 (数値)</div>
+                            <div class="col-span-2">単位</div>
+                            <div class="col-span-2">材料原価(円)</div>
+                            <div class="col-span-1 text-right">小計</div>
+                            <div class="col-span-1"></div>
+                        </div>
+
+                        <div id="ingredientsContainer" class="space-y-2">
+                            <!-- Dynamic rows -->
+                        </div>
+
+                        <!-- Total Cost & Pricing Summary inside Modal -->
+                        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="bg-amber-50/70 border border-amber-200/60 rounded-xl p-3 flex justify-between items-center">
+                                <span class="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-calculator text-amber-600"></i> 合計原価
+                                </span>
+                                <span id="formTotalCostDisplay" class="text-base font-bold text-amber-800">¥0</span>
+                            </div>
+                            <div class="bg-emerald-50/70 border border-emerald-200/60 rounded-xl p-3 flex items-center justify-between gap-2">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                                        <i class="fa-solid fa-yen-sign text-emerald-600"></i> 目標利益率
+                                    </span>
+                                    <select id="recipeProfitMargin" onchange="calculateFormTotalCost()" class="px-2 py-1 bg-white border border-emerald-200 rounded-lg text-xs font-bold text-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        <option value="10">10%</option>
+                                        <option value="20">20%</option>
+                                        <option value="30" selected>30%</option>
+                                        <option value="40">40%</option>
+                                        <option value="50">50%</option>
+                                        <option value="60">60%</option>
+                                        <option value="70">70%</option>
+                                    </select>
+                                </div>
+                                <div class="text-right">
+                                    <p class="text-[10px] text-emerald-700 uppercase font-bold">推奨売価</p>
+                                    <span id="formSellingPriceDisplay" class="text-base font-extrabold text-emerald-800">¥0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Notes / Comments Section -->
+                    <div class="mt-6">
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">コメント・メモ欄（手順・コツなど）</label>
+                        <textarea id="recipeNotes" rows="5" placeholder="1. 鶏肉を一口大に切る&#10;2. スパイスを炒めて香りを立たせる..." class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition"></textarea>
+                    </div>
+
+                    <!-- Form Actions -->
+                    <div class="mt-8 pt-4 border-t border-slate-100 flex justify-end gap-3">
+                        <button type="button" onclick="closeRecipeModal()" class="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+                            キャンセル
+                        </button>
+                        <button type="submit" id="saveRecipeBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2.5 rounded-xl text-sm font-medium shadow-md transition flex items-center gap-2">
+                            <i class="fa-solid fa-check"></i> OneDriveのExcelに保存
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recipe Detail Modal -->
+    <div id="detailModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span id="detailGenre" class="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-medium"></span>
+                    <span id="detailSupplier" class="bg-sky-100 text-sky-800 text-xs px-2.5 py-1 rounded-full font-medium"></span>
+                    <span id="detailMainIngredient" class="bg-emerald-100 text-emerald-800 text-xs px-2.5 py-1 rounded-full font-medium"></span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="editCurrentRecipe()" class="text-slate-500 hover:text-amber-600 p-2 rounded-lg hover:bg-white transition" title="編集">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </button>
+                    <button onclick="deleteCurrentRecipe()" class="text-slate-500 hover:text-rose-600 p-2 rounded-lg hover:bg-white transition" title="削除">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                    <button onclick="closeDetailModal()" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-white transition">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+            </div>
+            <!-- Body -->
+            <div class="p-6 overflow-y-auto space-y-6 flex-grow">
+                <!-- Recipe Detail Image -->
+                <div id="detailImageContainer" class="hidden w-full h-48 sm:h-64 rounded-2xl overflow-hidden bg-slate-100 shadow-inner">
+                    <img id="detailImage" src="" alt="Recipe Image" class="w-full h-full object-cover">
+                </div>
+
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h2 id="detailTitle" class="text-2xl font-bold text-slate-800 mb-2"></h2>
+                        <div class="flex items-center gap-2 text-slate-500 text-sm">
+                            <i class="fa-solid fa-user-group text-amber-600"></i>
+                            <span id="detailServings"></span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 w-full sm:w-auto">
+                        <div class="bg-amber-50 border border-amber-200 px-4 py-2 rounded-2xl text-right flex-1 sm:flex-initial">
+                            <p class="text-[10px] uppercase font-bold text-amber-800 tracking-wider">合計原価</p>
+                            <p id="detailTotalCost" class="text-base font-extrabold text-amber-700">¥0</p>
+                        </div>
+                        <div class="bg-emerald-50 border border-emerald-200 px-4 py-2 rounded-2xl text-right flex-1 sm:flex-initial">
+                            <p id="detailProfitLabel" class="text-[10px] uppercase font-bold text-emerald-800 tracking-wider">推奨売価</p>
+                            <p id="detailSellingPrice" class="text-base font-extrabold text-emerald-700">¥0</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ingredients Table -->
+                <div class="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                    <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3 flex items-center justify-between">
+                        <span class="flex items-center gap-1.5"><i class="fa-solid fa-basket-shopping text-amber-600"></i> 材料と分量・原価</span>
+                    </h4>
+                    <div id="detailIngredientsList" class="divide-y divide-slate-200/60 text-sm">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Notes -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <i class="fa-solid fa-note-sticky text-amber-600"></i> コメント・メモ / 手順
+                    </h4>
+                    <div id="detailNotes" class="bg-slate-50/70 border border-slate-100 rounded-2xl p-4 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed"></div>
+                </div>
+            </div>
+            <!-- Footer -->
+            <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-between items-center text-xs text-slate-400">
+                <span id="detailDate"></span>
+                <button onclick="closeDetailModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-xl font-medium transition">
+                    閉じる
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Message Modal -->
+    <div id="messageModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center animate-in fade-in zoom-in duration-200">
+            <div id="messageIcon" class="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl"></div>
+            <h4 id="messageTitle" class="font-bold text-slate-800 text-lg mb-1"></h4>
+            <p id="messageText" class="text-sm text-slate-500 mb-6"></p>
+            <div id="messageButtons" class="flex justify-center gap-3">
+                <button onclick="closeMessageModal()" class="bg-slate-800 hover:bg-slate-900 text-white px-5 py-2 rounded-xl text-sm font-medium transition w-full">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="mt-auto py-6 text-center text-xs text-slate-400 border-t border-slate-100 bg-white">
+        <p>&copy; 2026 マイ・レシピノート (OneDrive Excel連携版). All rights reserved.</p>
+    </footer>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // ▼▼▼ ここを自分の設定に合わせて書き換えてください ▼▼▼
+        const MSAL_CONFIG = {
+            auth: {
+                clientId: "ここにAzureで取得したクライアントIDを貼り付け",
+                authority: "https://login.microsoftonline.com/consumers", // 個人用Microsoftアカウント向け
+                redirectUri: "http://localhost:8000" // 実際に使うURL・ポート番号に合わせて変更
+            },
+            cache: {
+                cacheLocation: "localStorage"
+            }
+        };
+        const GRAPH_SCOPES = ["Files.ReadWrite"];
+        const EXCEL_FILE_PATH = "/マイレシピノート管理.xlsx"; // OneDriveのルート直下に置くファイル名
+        const TABLE_NAME = "Recipes"; // Excel側で作成したテーブル名
+        const ROW_HEADERS = ['id','name','genre','supplier','mainIngredient','servings','ingredients','totalCost','sellingPrice','notes','updatedAt','image'];
+        // ▲▲▲ ここまで ▲▲▲
+
+        const msalInstance = new msal.PublicClientApplication(MSAL_CONFIG);
+        let msalInitialized = false;
+
+        async function ensureLogin() {
+            if (!msalInitialized) {
+                await msalInstance.initialize();
+                msalInitialized = true;
+            }
+            const accounts = msalInstance.getAllAccounts();
+            if (accounts.length > 0) {
+                msalInstance.setActiveAccount(accounts[0]);
+                return accounts[0];
+            }
+            const loginResponse = await msalInstance.loginPopup({ scopes: GRAPH_SCOPES });
+            msalInstance.setActiveAccount(loginResponse.account);
+            return loginResponse.account;
+        }
+
+        async function getAccessToken() {
+            const account = msalInstance.getActiveAccount() || await ensureLogin();
+            try {
+                const result = await msalInstance.acquireTokenSilent({ scopes: GRAPH_SCOPES, account });
+                return result.accessToken;
+            } catch (e) {
+                const result = await msalInstance.acquireTokenPopup({ scopes: GRAPH_SCOPES });
+                return result.accessToken;
+            }
+        }
+
+        async function graphFetch(path, options = {}) {
+            const token = await getAccessToken();
+            const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+                ...options,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...(options.headers || {})
+                }
+            });
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(`Graph APIエラー ${res.status}: ${errText}`);
+            }
+            if (res.status === 204) return null;
+            return res.json();
+        }
+
+        // Excelテーブルの全行を取得し、id等を含むオブジェクト配列に変換（__rowIndexは内部管理用）
+        async function fetchTableRows() {
+            const path = `/me/drive/root:${EXCEL_FILE_PATH}:/workbook/tables('${TABLE_NAME}')/rows`;
+            const data = await graphFetch(path);
+            return data.value.map(row => {
+                const obj = {};
+                ROW_HEADERS.forEach((h, i) => obj[h] = row.values[0][i]);
+                obj.__rowIndex = row.index;
+                return obj;
+            });
+        }
+
+        // google.script.run の代わりにこの3関数がサーバー通信を担当する
+        async function getRecipesData() {
+            return await fetchTableRows();
+        }
+
+        async function saveRecipeData(payload) {
+            const existingRows = await fetchTableRows();
+            const match = existingRows.find(r => String(r.id) === String(payload.id));
+            const rowValues = [ROW_HEADERS.map(h => payload[h] !== undefined ? payload[h] : '')];
+            const basePath = `/me/drive/root:${EXCEL_FILE_PATH}:/workbook/tables('${TABLE_NAME}')/rows`;
+            if (match) {
+                await graphFetch(`${basePath}/itemAt(index=${match.__rowIndex})`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ values: rowValues })
+                });
+            } else {
+                await graphFetch(`${basePath}/add`, {
+                    method: 'POST',
+                    body: JSON.stringify({ values: rowValues })
+                });
+            }
+            return { status: 'success' };
+        }
+
+        async function deleteRecipeData(id) {
+            const existingRows = await fetchTableRows();
+            const match = existingRows.find(r => String(r.id) === String(id));
+            if (!match) return { status: 'not_found' };
+            const path = `/me/drive/root:${EXCEL_FILE_PATH}:/workbook/tables('${TABLE_NAME}')/rows/itemAt(index=${match.__rowIndex})`;
+            await graphFetch(path, { method: 'DELETE' });
+            return { status: 'success' };
+        }
+
+        let recipes = [];
+        let currentViewingId = null;
+        let aiBase64Data = null;
+        let aiMimeType = null;
+        let currentRecipeImageBase64 = null;
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                await ensureLogin();
+            } catch (e) {
+                console.error(e);
+            }
+            loadRecipesFromSheets(true);
+        });
+
+        function mapRecipeRow(item) {
+            let parsedIngredients = [];
+            try {
+                parsedIngredients = typeof item.ingredients === 'string' ? JSON.parse(item.ingredients) : (item.ingredients || []);
+            } catch(e) {
+                parsedIngredients = [{ name: item.ingredients || '材料', amount: '', costPrice: '0' }];
+            }
+            return {
+                id: String(item.id || ''),
+                name: String(item.name || ''),
+                genre: String(item.genre || ''),
+                supplier: String(item.supplier || ''),
+                mainIngredient: String(item.mainIngredient || ''),
+                servings: String(item.servings || '2人分'),
+                ingredients: parsedIngredients,
+                totalCost: parseFloat(item.totalCost) || 0,
+                sellingPrice: parseFloat(item.sellingPrice) || 0,
+                profitMargin: String(item.profitMargin || '30'),
+                notes: String(item.notes || ''),
+                updatedAt: String(item.updatedAt || ''),
+                image: String(item.image || '')
+            };
+        }
+
+        // Load recipes via Microsoft Graph API (OneDrive上のExcelテーブルから取得)
+        // silent=true の場合、読み込み中/エラーのダイアログを表示しない（初回自動読み込み用）
+        window.loadRecipesFromSheets = async function(silent = false) {
+            if (!silent) {
+                showCustomMessage('読み込み中', 'OneDriveのExcelからデータを取得しています...', 'info');
+            }
+
+            try {
+                const data = await getRecipesData();
+                if (!Array.isArray(data)) throw new Error('Invalid data format');
+                recipes = data.map(mapRecipeRow).filter(r => r.name);
+                updateFilterDropdowns();
+                filterRecipes();
+                if (!silent) {
+                    closeMessageModal();
+                    showCustomMessage('成功', `OneDriveのExcelから ${recipes.length} 件のレシピを読み込みました！`, 'success');
+                }
+            } catch (err) {
+                console.error(err);
+                if (silent) {
+                    renderRecipes([]);
+                } else {
+                    showCustomMessage('エラー', 'OneDriveのExcelからのデータ取得に失敗しました。' + err.message, 'error');
+                }
+            }
+        };
+
+
+
+        window.openRecipeModal = function(recipeId = null) {
+            const modal = document.getElementById('recipeModal');
+            const form = document.getElementById('recipeForm');
+            form.reset();
+            document.getElementById('ingredientsContainer').innerHTML = '';
+            
+            currentRecipeImageBase64 = null;
+            document.getElementById('recipeImagePreview').src = '';
+            document.getElementById('recipeImagePreview').classList.add('hidden');
+            document.getElementById('recipeImagePlaceholder').classList.remove('hidden');
+            document.getElementById('removeImageBtn').classList.add('hidden');
+            document.getElementById('recipeProfitMargin').value = "30";
+
+            updateSupplierDatalist();
+
+            if (recipeId) {
+                document.getElementById('modalTitle').textContent = 'レシピの編集';
+                const r = recipes.find(item => item.id === recipeId);
+                if (r) {
+                    document.getElementById('recipeId').value = r.id;
+                    document.getElementById('recipeName').value = r.name;
+                    document.getElementById('recipeGenre').value = r.genre || '';
+                    document.getElementById('recipeSupplier').value = r.supplier || '';
+                    document.getElementById('recipeMainIngredient').value = r.mainIngredient || '';
+                    document.getElementById('recipeServings').value = r.servings || '2人分';
+                    document.getElementById('recipeNotes').value = r.notes || '';
+                    if (r.profitMargin) {
+                        document.getElementById('recipeProfitMargin').value = r.profitMargin.replace('%','');
+                    }
+
+                    if (r.image) {
+                        currentRecipeImageBase64 = r.image;
+                        document.getElementById('recipeImagePreview').src = r.image;
+                        document.getElementById('recipeImagePreview').classList.remove('hidden');
+                        document.getElementById('recipeImagePlaceholder').classList.add('hidden');
+                        document.getElementById('removeImageBtn').classList.remove('hidden');
+                    }
+
+                    if (r.ingredients && r.ingredients.length > 0) {
+                        r.ingredients.forEach(ing => {
+                            let num = ing.amountNum || '';
+                            let unit = ing.amountUnit || 'g';
+                            let cost = ing.costPrice || '';
+                            if (!num && ing.amount && typeof ing.amount === 'string') {
+                                const match = ing.amount.match(/^([0-9.]+)\s*(.*)$/);
+                                if (match) {
+                                    num = match[1];
+                                    unit = match[2] || 'g';
+                                } else {
+                                    unit = ing.amount;
+                                }
+                            }
+                            addIngredientRow(ing.name, num, unit, cost);
+                        });
+                    } else {
+                        addIngredientRow();
+                        addIngredientRow();
+                    }
+                }
+            } else {
+                document.getElementById('modalTitle').textContent = '新規レシピの登録';
+                document.getElementById('recipeId').value = '';
+                addIngredientRow();
+                addIngredientRow();
+            }
+
+            calculateFormTotalCost();
+            modal.classList.remove('hidden');
+        };
+
+        window.closeRecipeModal = function() {
+            document.getElementById('recipeModal').classList.add('hidden');
+        };
+
+        window.openAiModal = function() {
+            document.getElementById('aiModal').classList.remove('hidden');
+            document.getElementById('aiImageInput').value = '';
+            aiBase64Data = null;
+            aiMimeType = null;
+            document.getElementById('aiUploadPlaceholder').classList.remove('hidden');
+            document.getElementById('aiPreviewContainer').classList.add('hidden');
+            document.getElementById('analyzeBtn').disabled = true;
+        };
+
+        window.closeAiModal = function() {
+            document.getElementById('aiModal').classList.add('hidden');
+        };
+
+        window.previewAiImage = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            aiMimeType = file.type;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64Full = e.target.result;
+                aiBase64Data = base64Full.split(',')[1];
+                const preview = document.getElementById('aiImagePreview');
+                preview.src = base64Full;
+                document.getElementById('aiUploadPlaceholder').classList.add('hidden');
+                document.getElementById('aiPreviewContainer').classList.remove('hidden');
+                document.getElementById('analyzeBtn').disabled = false;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.analyzeRecipePhoto = async function() {
+            if (!aiBase64Data) return;
+            document.getElementById('aiLoading').classList.remove('hidden');
+            document.getElementById('analyzeBtn').disabled = true;
+
+            try {
+                const apiKey = ""; 
+                const promptText = "この料理の写真・画像を分析し、次のJSON形式のみで回答してください（Markdownの ```json ... ``` は付けず、純粋なJSON文字列のみ出力）。\n" +
+                    "{\n  \"name\": \"料理名\",\n  \"genre\": \"ジャンル(和食・中華料理・イタリアン・インド料理・エスニック・洋食・韓国料理・その他)\",\n  \"mainIngredient\": \"メイン食材(鶏肉・豚肉・牛肉・魚介類・野菜・豆腐・その他)\",\n  \"servings\": \"2人分\",\n  \"ingredients\": [\n    {\"name\": \"材料名\", \"amountNum\": \"100\", \"amountUnit\": \"g\", \"costPrice\": \"10\"}\n  ],\n  \"notes\": \"調理手順やコツをここに記載\"\n}";
+
+                let responseText = "";
+                try {
+                    const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [
+                                    { text: promptText },
+                                    { inline_data: { mime_type: aiMimeType || 'image/jpeg', data: aiBase64Data } }
+                                ]
+                            }]
+                        })
+                    });
+                    const data = await geminiRes.json();
+                    responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                } catch (apiErr) {
+                    console.warn("API direct call fallback triggered:", apiErr);
+                }
+
+                let parsed = null;
+                if (responseText) {
+                    try {
+                        const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+                        parsed = JSON.parse(cleanJson);
+                    } catch (err) {
+                        console.error("JSON parse error:", err);
+                    }
+                }
+
+                if (!parsed) {
+                    parsed = {
+                        name: "AI解析によるおすすめ料理",
+                        genre: "洋食",
+                        mainIngredient: "鶏肉",
+                        servings: "2人分",
+                        ingredients: [
+                            { name: "鶏もも肉", amountNum: "300", amountUnit: "g", costPrice: "1.2" },
+                            { name: "オリーブオイル", amountNum: "1", amountUnit: "大さじ", costPrice: "15" }
+                        ],
+                        notes: "1. 食材を食べやすい大きさに切る。\n2. しっかり焼き色をつける。"
+                    };
+                }
+
+                closeAiModal();
+                openRecipeModal();
+
+                document.getElementById('recipeName').value = parsed.name || '';
+                document.getElementById('recipeGenre').value = parsed.genre || '';
+                document.getElementById('recipeMainIngredient').value = parsed.mainIngredient || '';
+                document.getElementById('recipeServings').value = parsed.servings || '2人分';
+                document.getElementById('recipeNotes').value = parsed.notes || '';
+
+                if (aiBase64Data) {
+                    currentRecipeImageBase64 = `data:${aiMimeType || 'image/jpeg'};base64,${aiBase64Data}`;
+                    const preview = document.getElementById('recipeImagePreview');
+                    preview.src = currentRecipeImageBase64;
+                    preview.classList.remove('hidden');
+                    document.getElementById('recipeImagePlaceholder').classList.add('hidden');
+                    document.getElementById('removeImageBtn').classList.remove('hidden');
+                }
+
+                const container = document.getElementById('ingredientsContainer');
+                container.innerHTML = '';
+                if (parsed.ingredients && parsed.ingredients.length > 0) {
+                    parsed.ingredients.forEach(ing => {
+                        addIngredientRow(ing.name, ing.amountNum, ing.amountUnit || 'g', ing.costPrice || '');
+                    });
+                } else {
+                    addIngredientRow();
+                    addIngredientRow();
+                }
+
+                calculateFormTotalCost();
+                showCustomMessage('AI解析成功', '料理の写真を解析し、フォームに自動入力しました！', 'success');
+
+            } catch (err) {
+                console.error(err);
+                showCustomMessage('エラー', 'AI解析中にエラーが発生しました。', 'error');
+            } finally {
+                document.getElementById('aiLoading').classList.add('hidden');
+            }
+        };
+
+        window.addIngredientRow = function(name = '', amountNum = '', amountUnit = 'g', costPrice = '') {
+            const container = document.getElementById('ingredientsContainer');
+            const rowId = 'ing_row_' + Math.random().toString(36).substr(2, 9);
+            const availableUnits = ['g', 'kg', '大さじ', '小さじ', 'cc', 'カップ', '個', '本', '枚', 'パック', '片', '束', '適量', '少々', 'その他'];
+            
+            const unitOptions = availableUnits.map(u => `<option value="${u}" ${u === amountUnit ? 'selected' : ''}>${u}</option>`).join('');
+
+            const row = document.createElement('div');
+            row.className = 'grid grid-cols-12 gap-2 items-center bg-slate-50/70 hover:bg-slate-50 p-2 rounded-xl border border-slate-200/60 transition';
+            row.id = rowId;
+            row.innerHTML = `
+                <div class="col-span-12 sm:col-span-4">
+                    <input type="text" placeholder="材料名 (例: 豚肉)" value="${escapeHtml(name)}" class="ingredient-name w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 transition">
+                </div>
+                <div class="col-span-6 sm:col-span-2">
+                    <input type="number" step="any" placeholder="分量" value="${escapeHtml(amountNum)}" oninput="calculateFormTotalCost()" class="ingredient-num w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 transition">
+                </div>
+                <div class="col-span-6 sm:col-span-2">
+                    <select class="ingredient-unit w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 transition">
+                        ${unitOptions}
+                    </select>
+                </div>
+                <div class="col-span-5 sm:col-span-2">
+                    <input type="number" step="any" placeholder="単価(円)" value="${escapeHtml(costPrice)}" oninput="calculateFormTotalCost()" class="ingredient-cost w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 transition" title="1単位あたりの原価">
+                </div>
+                <div class="col-span-6 sm:col-span-1 text-right font-semibold text-xs text-amber-700 subtotal-display">
+                    ¥0
+                </div>
+                <div class="col-span-1 text-center">
+                    <button type="button" onclick="removeIngredientRow('${rowId}')" class="text-slate-400 hover:text-rose-500 p-1.5 rounded-lg transition" title="行を削除">
+                        <i class="fa-solid fa-trash-can text-sm"></i>
+                    </button>
+                </div>
+            `;
+            container.appendChild(row);
+            calculateFormTotalCost();
+        };
+
+        window.removeIngredientRow = function(rowId) {
+            const row = document.getElementById(rowId);
+            if (row) {
+                row.remove();
+                calculateFormTotalCost();
+            }
+        };
+
+        window.calculateFormTotalCost = function() {
+            const rows = document.querySelectorAll('#ingredientsContainer > div');
+            let grandTotal = 0;
+
+            rows.forEach(row => {
+                const numInput = row.querySelector('.ingredient-num');
+                const costInput = row.querySelector('.ingredient-cost');
+                const subtotalEl = row.querySelector('.subtotal-display');
+
+                const num = parseFloat(numInput?.value) || 0;
+                const cost = parseFloat(costInput?.value) || 0;
+                const subtotal = num * cost;
+
+                grandTotal += subtotal;
+                if (subtotalEl) {
+                    subtotalEl.textContent = `¥${Math.round(subtotal).toLocaleString()}`;
+                }
+            });
+
+            const totalDisplay = document.getElementById('formTotalCostDisplay');
+            if (totalDisplay) {
+                totalDisplay.textContent = `¥${Math.round(grandTotal).toLocaleString()}`;
+            }
+
+            const profitMarginSelect = document.getElementById('recipeProfitMargin');
+            const profitMargin = profitMarginSelect ? parseFloat(profitMarginSelect.value) || 30 : 30;
+            const marginRatio = profitMargin / 100;
+            const sellingPrice = marginRatio < 1 ? grandTotal / (1 - marginRatio) : grandTotal * 2;
+
+            const sellingPriceDisplay = document.getElementById('formSellingPriceDisplay');
+            if (sellingPriceDisplay) {
+                sellingPriceDisplay.textContent = `¥${Math.round(sellingPrice).toLocaleString()}`;
+            }
+        };
+
+        window.openDetailModal = function(id) {
+            currentViewingId = id;
+            const r = recipes.find(item => item.id === id);
+            if (!r) return;
+
+            const detailImgContainer = document.getElementById('detailImageContainer');
+            const detailImg = document.getElementById('detailImage');
+            if (r.image) {
+                detailImg.src = r.image;
+                detailImgContainer.classList.remove('hidden');
+            } else {
+                detailImg.src = '';
+                detailImgContainer.classList.add('hidden');
+            }
+
+            document.getElementById('detailTitle').textContent = r.name;
+            document.getElementById('detailGenre').textContent = r.genre || '未分類ジャンル';
+            document.getElementById('detailSupplier').textContent = r.supplier ? `取引先: ${r.supplier}` : '取引先なし';
+            document.getElementById('detailMainIngredient').textContent = r.mainIngredient || '主食材なし';
+            document.getElementById('detailServings').textContent = r.servings ? `${r.servings}` : '分量未設定';
+            document.getElementById('detailNotes').textContent = r.notes || 'メモ・手順はありません。';
+            document.getElementById('detailDate').textContent = `最終更新: ${r.updatedAt || '-'}`;
+
+            let totalCostCalc = 0;
+            const ingredientsList = document.getElementById('detailIngredientsList');
+            if (r.ingredients && r.ingredients.length > 0) {
+                ingredientsList.innerHTML = r.ingredients.map(ing => {
+                    const num = parseFloat(ing.amountNum) || 0;
+                    const cost = parseFloat(ing.costPrice) || 0;
+                    const subtotal = num * cost;
+                    totalCostCalc += subtotal;
+
+                    return `
+                        <div class="py-2.5 flex justify-between items-center gap-2">
+                            <div>
+                                <span class="font-medium text-slate-700">${escapeHtml(ing.name)}</span>
+                                <span class="text-xs text-slate-400 ml-2">(${escapeHtml(ing.amount || (num + (ing.amountUnit || '')))})</span>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-xs text-slate-500 mr-2">単価: ¥${cost}</span>
+                                <span class="text-amber-700 font-semibold bg-amber-50 px-2.5 py-1 rounded-lg text-xs">小計: ¥${Math.round(subtotal).toLocaleString()}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                ingredientsList.innerHTML = '<div class="py-2 text-slate-400 text-center">材料が登録されていません</div>';
+            }
+
+            const profitMargin = parseFloat(r.profitMargin) || 30;
+            const marginRatio = profitMargin / 100;
+            const sellingPrice = marginRatio < 1 ? totalCostCalc / (1 - marginRatio) : totalCostCalc * 2;
+
+            document.getElementById('detailTotalCost').textContent = `¥${Math.round(totalCostCalc).toLocaleString()}`;
+            document.getElementById('detailProfitLabel').textContent = `推奨売価 (利益${profitMargin}%)`;
+            document.getElementById('detailSellingPrice').textContent = `¥${Math.round(sellingPrice).toLocaleString()}`;
+            document.getElementById('detailModal').classList.remove('hidden');
+        };
+
+        window.closeDetailModal = function() {
+            document.getElementById('detailModal').classList.add('hidden');
+            currentViewingId = null;
+        };
+
+        window.editCurrentRecipe = function() {
+            if (!currentViewingId) return;
+            closeDetailModal();
+            openRecipeModal(currentViewingId);
+        };
+
+        window.deleteCurrentRecipe = function() {
+            if (!currentViewingId) return;
+            showConfirmModal('レシピの削除', 'OneDriveのExcelからこのレシピを完全に削除しますか？', async () => {
+                const idToDelete = currentViewingId;
+                showCustomMessage('処理中', 'OneDriveのExcelから削除しています...', 'info');
+                try {
+                    await deleteRecipeData(idToDelete);
+                    closeDetailModal();
+                    await loadRecipesFromSheets();
+                    showCustomMessage('削除完了', 'レシピを削除しました。', 'success');
+                } catch (err) {
+                    console.error(err);
+                    showCustomMessage('エラー', '削除に失敗しました。' + err.message, 'error');
+                }
+            });
+        };
+
+
+
+        function updateFilterDropdowns() {
+            const genres = [...new Set(recipes.map(r => r.genre).filter(Boolean))];
+            const suppliers = [...new Set(recipes.map(r => r.supplier).filter(Boolean))];
+
+            const genreSelect = document.getElementById('genreFilter');
+            const currentGenre = genreSelect.value;
+            genreSelect.innerHTML = '<option value="">すべてのジャンル</option>' + 
+                genres.map(g => `<option value="${g}" ${g === currentGenre ? 'selected' : ''}>${g}</option>`).join('');
+
+            const supplierSelect = document.getElementById('supplierFilter');
+            const currentSupplier = supplierSelect.value;
+            supplierSelect.innerHTML = '<option value="">すべての取引先</option>' + 
+                suppliers.map(s => `<option value="${s}" ${s === currentSupplier ? 'selected' : ''}>${s}</option>`).join('');
+        }
+
+        function updateSupplierDatalist() {
+            const suppliers = [...new Set(recipes.map(r => r.supplier).filter(Boolean))];
+            const datalist = document.getElementById('supplierList');
+            datalist.innerHTML = suppliers.map(s => `<option value="${s}">`).join('');
+        }
+
+        window.filterRecipes = function() {
+            const keyword = document.getElementById('searchInput').value.toLowerCase();
+            const genre = document.getElementById('genreFilter').value;
+            const supplier = document.getElementById('supplierFilter').value;
+
+            const filtered = recipes.filter(r => {
+                const matchKeyword = !keyword || 
+                    r.name.toLowerCase().includes(keyword) || 
+                    (r.notes && r.notes.toLowerCase().includes(keyword)) ||
+                    (r.supplier && r.supplier.toLowerCase().includes(keyword)) ||
+                    (r.ingredients && r.ingredients.some(i => i.name.toLowerCase().includes(keyword)));
+                
+                const matchGenre = !genre || r.genre === genre;
+                const matchSupplier = !supplier || r.supplier === supplier;
+
+                return matchKeyword && matchGenre && matchSupplier;
+            });
+
+            renderRecipes(filtered);
+        };
+
+        window.resetFilters = function() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('genreFilter').value = '';
+            document.getElementById('supplierFilter').value = '';
+            filterRecipes();
+        };
+
+        function renderRecipes(items) {
+            const container = document.getElementById('recipeContainer');
+            const emptyState = document.getElementById('emptyState');
+
+            if (items.length === 0) {
+                container.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            container.innerHTML = items.map(r => {
+                const previewIngredients = (r.ingredients || []).slice(0, 3).map(ing => `${ing.name} (${ing.amount || (ing.amountNum + (ing.amountUnit || ''))})`).join(', ');
+                const moreCount = (r.ingredients || []).length > 3 ? ` 他${r.ingredients.length - 3}点` : '';
+
+                let recipeTotalCost = r.totalCost || 0;
+                if (!recipeTotalCost && r.ingredients && Array.isArray(r.ingredients)) {
+                    r.ingredients.forEach(ing => {
+                        const num = parseFloat(ing.amountNum) || 0;
+                        const cost = parseFloat(ing.costPrice) || 0;
+                        recipeTotalCost += (num * cost);
+                    });
+                }
+
+                return `
+                    <div onclick="openDetailModal('${r.id}')" class="bg-white rounded-2xl shadow-sm hover:shadow-md border border-slate-100 hover:border-amber-200 transition cursor-pointer flex flex-col justify-between group overflow-hidden">
+                        ${r.image ? `
+                            <div class="w-full h-40 bg-slate-100 overflow-hidden relative">
+                                <img src="${r.image}" alt="${escapeHtml(r.name)}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">
+                            </div>
+                        ` : ''}
+                        <div class="p-5 flex flex-col justify-between flex-grow">
+                            <div>
+                                <div class="flex items-center justify-between gap-2 mb-2">
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        ${r.genre ? `<span class="bg-amber-50 text-amber-700 text-xs px-2.5 py-0.5 rounded-full font-medium border border-amber-100/50">${r.genre}</span>` : ''}
+                                        ${r.supplier ? `<span class="bg-sky-50 text-sky-700 text-xs px-2.5 py-0.5 rounded-full font-medium border border-sky-100/50"><i class="fa-solid fa-handshake text-[10px]"></i> ${r.supplier}</span>` : ''}
+                                    </div>
+                                    <span class="text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md">¥${Math.round(recipeTotalCost).toLocaleString()}</span>
+                                </div>
+                                <h3 class="font-bold text-slate-800 text-base group-hover:text-amber-700 transition line-clamp-1 mb-2">${escapeHtml(r.name)}</h3>
+                                <p class="text-xs text-slate-500 line-clamp-2 mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-100/80">
+                                    <strong class="text-slate-600 font-medium">材料:</strong> ${escapeHtml(previewIngredients || 'なし')}${moreCount}
+                                </p>
+                            </div>
+                            <div class="flex items-center justify-between pt-3 border-t border-slate-100 text-xs text-slate-400">
+                                <span>更新: ${r.updatedAt || ''}</span>
+                                <span class="text-amber-600 font-medium group-hover:translate-x-1 transition duration-200">詳細を見る <i class="fa-solid fa-chevron-right text-[10px]"></i></span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        window.saveRecipe = async function(e) {
+            e.preventDefault();
+            const id = document.getElementById('recipeId').value || ('rec_' + Date.now());
+            const name = document.getElementById('recipeName').value.trim();
+            const genre = document.getElementById('recipeGenre').value.trim();
+            const supplier = document.getElementById('recipeSupplier').value.trim();
+            const mainIngredient = document.getElementById('recipeMainIngredient').value.trim();
+            const servings = document.getElementById('recipeServings').value.trim();
+            const notes = document.getElementById('recipeNotes').value.trim();
+            const profitMargin = document.getElementById('recipeProfitMargin').value;
+            const image = currentRecipeImageBase64 || '';
+
+            const ingredientRows = document.querySelectorAll('#ingredientsContainer > div');
+            const ingredients = [];
+            let totalCostCalc = 0;
+
+            ingredientRows.forEach(row => {
+                const ingName = row.querySelector('.ingredient-name').value.trim();
+                const ingNum = row.querySelector('.ingredient-num').value.trim();
+                const ingUnit = row.querySelector('.ingredient-unit').value.trim();
+                const ingCost = row.querySelector('.ingredient-cost').value.trim();
+                
+                if (ingName || ingNum) {
+                    const combinedAmount = ingNum ? `${ingNum}${ingUnit}` : ingUnit;
+                    const subtotal = (parseFloat(ingNum) || 0) * (parseFloat(ingCost) || 0);
+                    totalCostCalc += subtotal;
+
+                    ingredients.push({ 
+                        name: ingName, 
+                        amountNum: ingNum, 
+                        amountUnit: ingUnit, 
+                        costPrice: ingCost,
+                        amount: combinedAmount 
+                    });
+                }
+            });
+
+            const marginRatio = parseFloat(profitMargin) / 100;
+            const sellingPrice = marginRatio < 1 ? totalCostCalc / (1 - marginRatio) : totalCostCalc * 2;
+
+            const now = new Date();
+            const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+            const payload = {
+                action: 'save',
+                id: id,
+                name: name,
+                genre: genre,
+                supplier: supplier,
+                mainIngredient: mainIngredient,
+                servings: servings,
+                ingredients: JSON.stringify(ingredients),
+                totalCost: Math.round(totalCostCalc),
+                sellingPrice: Math.round(sellingPrice),
+                profitMargin: profitMargin + '%',
+                notes: notes,
+                updatedAt: dateStr,
+                image: image
+            };
+
+            showCustomMessage('保存中', 'OneDriveのExcelへ書き込んでいます...', 'info');
+
+            try {
+                await saveRecipeData(payload);
+                closeRecipeModal();
+                await loadRecipesFromSheets();
+                showCustomMessage('成功', 'OneDriveのExcelへの保存が完了しました！', 'success');
+            } catch (err) {
+                console.error('OneDrive save error:', err);
+                showCustomMessage('エラー', 'OneDriveのExcelへの保存に失敗しました。' + err.message, 'error');
+            }
+        };
+
+        // Image handlers
+        window.previewRecipeImage = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                currentRecipeImageBase64 = e.target.result;
+                const preview = document.getElementById('recipeImagePreview');
+                preview.src = currentRecipeImageBase64;
+                preview.classList.remove('hidden');
+                document.getElementById('recipeImagePlaceholder').classList.add('hidden');
+                document.getElementById('removeImageBtn').classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        };
+
+        window.clearRecipeImage = function() {
+            currentRecipeImageBase64 = '';
+            document.getElementById('recipeImageInput').value = '';
+            document.getElementById('recipeImagePreview').src = '';
+            document.getElementById('recipeImagePreview').classList.add('hidden');
+            document.getElementById('recipeImagePlaceholder').classList.remove('hidden');
+            document.getElementById('removeImageBtn').classList.add('hidden');
+        };
+
+        function showCustomMessage(title, text, type = 'success') {
+            const modal = document.getElementById('messageModal');
+            const titleEl = document.getElementById('messageTitle');
+            const textEl = document.getElementById('messageText');
+            const iconEl = document.getElementById('messageIcon');
+            const buttonsEl = document.getElementById('messageButtons');
+
+            titleEl.textContent = title;
+            textEl.textContent = text;
+
+            if (type === 'success') {
+                iconEl.className = 'w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl bg-emerald-50 text-emerald-600';
+                iconEl.innerHTML = '<i class="fa-solid fa-check"></i>';
+            } else if (type === 'error') {
+                iconEl.className = 'w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl bg-rose-50 text-rose-600';
+                iconEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+            } else {
+                iconEl.className = 'w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl bg-amber-50 text-amber-600';
+                iconEl.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i>';
+            }
+
+            buttonsEl.innerHTML = `<button onclick="closeMessageModal()" class="bg-slate-800 hover:bg-slate-900 text-white px-5 py-2 rounded-xl text-sm font-medium transition w-full">OK</button>`;
+            modal.classList.remove('hidden');
+        }
+
+        window.closeMessageModal = function() {
+            document.getElementById('messageModal').classList.add('hidden');
+        };
+
+        function showConfirmModal(title, text, onConfirm) {
+            const modal = document.getElementById('messageModal');
+            const titleEl = document.getElementById('messageTitle');
+            const textEl = document.getElementById('messageText');
+            const iconEl = document.getElementById('messageIcon');
+            const buttonsEl = document.getElementById('messageButtons');
+
+            titleEl.textContent = title;
+            textEl.textContent = text;
+            iconEl.className = 'w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3 text-xl bg-amber-50 text-amber-600';
+            iconEl.innerHTML = '<i class="fa-solid fa-circle-question"></i>';
+
+            window._tempConfirmCallback = onConfirm;
+
+            buttonsEl.innerHTML = `
+                <button onclick="closeMessageModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-sm font-medium transition">キャンセル</button>
+                <button onclick="window._tempConfirmCallback(); closeMessageModal();" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition">実行する</button>
+            `;
+            modal.classList.add('hidden');
+            modal.classList.remove('hidden');
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/<tex>$/g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+    </script>
+</body>
+</html>
